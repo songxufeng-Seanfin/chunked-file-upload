@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>大文件分片上传与秒传 · 技术文档与博客</title>
+<style>
+  :root {
+    --bg: #f7f9fc; --surface: #ffffff; --ink: #172b4d; --muted: #5c6f8c;
+    --line: #e3ebf5; --brand: #1677ff; --brand-soft: #e8f3ff; --code-bg: #f4f7fb;
+    --radius: 14px; --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", "Hiragino Sans GB", "Source Han Sans SC", sans-serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161d; --surface: #1a2029; --ink: #e6edf6; --muted: #9fb0c6;
+      --line: #2c3542; --brand: #6aa8ff; --brand-soft: #1c2c42; --code-bg: #141a22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+    font-size: 15px; line-height: 1.85; }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .topbar { position: sticky; top: 0; z-index: 20; background: var(--surface);
+    border-bottom: 1px solid var(--line); padding: 14px 26px; display: flex;
+    align-items: center; gap: 22px; flex-wrap: wrap; }
+  .brand { font-size: 17px; font-weight: 700; letter-spacing: .3px; white-space: nowrap; }
+  .brand span { color: var(--brand); }
+  .tabs { display: flex; gap: 8px; }
+  .tab { border: 1px solid var(--line); background: transparent; color: var(--muted);
+    padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 13.5px;
+    font-family: inherit; transition: .18s ease; }
+  .tab:hover { border-color: var(--brand); color: var(--brand); }
+  .tab.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .meta { margin-left: auto; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .layout { display: flex; gap: 28px; max-width: 1240px; margin: 0 auto; padding: 28px 26px 80px; }
+  .toc { width: 236px; flex: none; position: sticky; top: 78px; align-self: flex-start;
+    max-height: calc(100vh - 110px); overflow-y: auto; padding-right: 8px; }
+  .toc-title { font-size: 12px; color: var(--muted); letter-spacing: 1.2px;
+    text-transform: uppercase; margin: 0 0 10px 10px; font-weight: 700; }
+  .toc-link { display: block; padding: 5px 10px; border-radius: 8px; color: var(--muted);
+    font-size: 13px; line-height: 1.5; border-left: 2px solid transparent; }
+  .toc-link:hover { background: var(--brand-soft); color: var(--brand); text-decoration: none; }
+  .toc-link.active { color: var(--brand); border-left-color: var(--brand);
+    background: var(--brand-soft); font-weight: 600; }
+  .toc-group { display: none; }
+  .toc-group.active { display: block; }
+  main { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 40px 48px 64px; }
+  article { display: none; }
+  article.active { display: block; }
+  h1 { font-size: 27px; line-height: 1.4; margin: 0 0 18px; letter-spacing: -.3px; }
+  h2 { font-size: 21px; margin: 46px 0 16px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--line); scroll-margin-top: 90px; }
+  .anchor { display: block; height: 0; scroll-margin-top: 90px; }
+  h3 { font-size: 17px; margin: 30px 0 12px; }
+  h4 { font-size: 15px; margin: 22px 0 10px; color: var(--muted); }
+  p { margin: 12px 0; }
+  strong { color: var(--ink); font-weight: 700; }
+  ul, ol { padding-left: 24px; margin: 12px 0; }
+  li { margin: 5px 0; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 34px 0; }
+  blockquote { margin: 18px 0; padding: 12px 18px; background: var(--brand-soft);
+    border-left: 3px solid var(--brand); border-radius: 0 10px 10px 0; color: var(--ink); }
+  blockquote p { margin: 0; }
+  code { font-family: var(--mono); font-size: .9em; background: var(--code-bg);
+    padding: 2px 6px; border-radius: 5px; border: 1px solid var(--line); }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 20px; overflow-x: auto; margin: 18px 0; line-height: 1.7; }
+  pre code { background: none; border: none; padding: 0; font-size: 12.5px; }
+  .table-wrap { overflow-x: auto; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 9px 13px; text-align: left;
+    vertical-align: top; line-height: 1.65; }
+  th { background: var(--brand-soft); font-weight: 700; white-space: nowrap; }
+  tbody tr:nth-child(even) { background: rgba(22, 119, 255, .035); }
+  .foot { text-align: center; color: var(--muted); font-size: 12.5px; padding: 0 26px 40px; }
+  @media (max-width: 900px) {
+    .layout { flex-direction: column; padding: 18px 14px 60px; gap: 14px; }
+    .toc { position: static; width: 100%; max-height: 190px; border: 1px solid var(--line);
+      border-radius: 10px; background: var(--surface); padding: 12px; }
+    main { padding: 24px 20px 44px; }
+    h1 { font-size: 22px; } h2 { font-size: 19px; }
+    .meta { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">大文件分片上传 <span>·</span> 项目文档</div>
+  <div class="tabs">
+    <button class="tab active" data-doc="tech">技术文档</button>
+    <button class="tab" data-doc="blog">博客文章</button>
+  </div>
+  <div class="meta">v1.0 · 2026-11-16 · Django 5.2 · Vue 3 · 22 tests</div>
+</div>
+<div class="layout">
+  <aside class="toc">
+    <div class="toc-title">目录</div>
+    <div class="toc-group active" data-group="tech"><a class="toc-link" href="#sec-1" data-target="sec-1">0. 先站远一点看：这个项目到底是什么</a>
+<a class="toc-link" href="#sec-2" data-target="sec-2">1. 技术栈：用了什么，各自负责哪一层</a>
+<a class="toc-link" href="#sec-3" data-target="sec-3">2. 第一层：一次点击，请求怎么走一圈</a>
+<a class="toc-link" href="#sec-4" data-target="sec-4">3. 第二层：Django 内部的五站流水线</a>
+<a class="toc-link" href="#sec-5" data-target="sec-5">4. 第三层：四张数据表，各司其职</a>
+<a class="toc-link" href="#sec-6" data-target="sec-6">5. 第四层：核心链路六步</a>
+<a class="toc-link" href="#sec-7" data-target="sec-7">6. 三个卖点，分别落在哪几行代码</a>
+<a class="toc-link" href="#sec-8" data-target="sec-8">7. 前端：Vue 3 看板与上传器</a>
+<a class="toc-link" href="#sec-9" data-target="sec-9">8. 接口清单</a>
+<a class="toc-link" href="#sec-10" data-target="sec-10">9. 文件清单与规模</a>
+<a class="toc-link" href="#sec-11" data-target="sec-11">10. 一键演示与可观测性</a>
+<a class="toc-link" href="#sec-12" data-target="sec-12">11. 测试策略：22 个测试分五组</a>
+<a class="toc-link" href="#sec-13" data-target="sec-13">12. 真实踩坑复盘</a>
+<a class="toc-link" href="#sec-14" data-target="sec-14">13. 想自己从零做出来，按这个顺序</a>
+<a class="toc-link" href="#sec-15" data-target="sec-15">14. 术语速查（白话版）</a>
+<a class="toc-link" href="#sec-16" data-target="sec-16">15. 上线前必须补的东西（诚实边界）</a></div>
+    <div class="toc-group" data-group="blog"><a class="toc-link" href="#sec-1" data-target="sec-1">一、为什么不能一次 POST 上去</a>
+<a class="toc-link" href="#sec-2" data-target="sec-2">二、我第一个版本犯的错：把分片绑在「任务」上</a>
+<a class="toc-link" href="#sec-3" data-target="sec-3">三、幂等不是 if 判断，是数据库说了算</a>
+<a class="toc-link" href="#sec-4" data-target="sec-4">四、乱序一点都不可怕，因为顺序由编号决定</a>
+<a class="toc-link" href="#sec-5" data-target="sec-5">五、秒传的本质：用内容当身份证</a>
+<a class="toc-link" href="#sec-6" data-target="sec-6">六、每一片都对，不等于拼起来对</a>
+<a class="toc-link" href="#sec-7" data-target="sec-7">七、看不见的系统，等于没做对</a>
+<a class="toc-link" href="#sec-8" data-target="sec-8">八、让「一键演示」跑真链路，不造假数据</a>
+<a class="toc-link" href="#sec-9" data-target="sec-9">九、前端那些不大不小的坑</a>
+<a class="toc-link" href="#sec-10" data-target="sec-10">十、最后跑了一遍真的</a>
+<a class="toc-link" href="#sec-11" data-target="sec-11">十一、写在最后</a></div>
+  </aside>
+  <main>
+    <article id="doc-tech" class="active"><h1>大文件分片上传与秒传 · 技术文档</h1>
+<blockquote>v1.0 · 2026-11-16 · Django 5.2 + Vue 3 + Pillow + SQLite · 22 个自动化测试全部通过<br><br>这份文档按「由外向内」的顺序写：先看你打开页面能看见什么，再看一次请求怎么走一圈，然后进到 Django 内部的路由、视图、业务层、数据表，最后才看一行行实现细节。<strong>专业术语第一次出现时，都会用大白话解释一遍</strong>，读不懂代码也没关系，先记住骨架。</blockquote>
+<hr>
+<span class="anchor" id="0-先站远一点看这个项目到底是什么"></span>
+<h2 id="sec-1">0. 先站远一点看：这个项目到底是什么</h2>
+<p>一句话：<strong>把大文件切成小块分别上传，服务器按编号拼回去；如果服务器上已经有同样的文件，就直接跳过上传；如果传到一半断了，就只补缺的那几块。</strong></p>
+<p>「大文件」在这里指几十 MB 到几百 MB 的东西。一次性 POST 上去会遇到三个麻烦：请求太大会被服务器或网关拒绝、网一断就得从头再来、大请求占满连接让别的操作变慢。分片（chunk，把文件按固定大小切开的小块）就是为了解决这三件事。</p>
+<p>打开 <code>http://127.0.0.1:8001/</code> 能亲眼看到四件事：</p>
+<div class="table-wrap"><table><thead><tr><th>你点的东西</th><th>背后发生的事</th><th>页面上能看到的证据</th></tr></thead><tbody><tr><td>一键跑全部场景</td><td>服务端用真实代码跑四个场景</td><td>统计卡数字变化、事件时间线多出十几条</td></tr><tr><td>选一个本地文件</td><td>浏览器真的切片、并发 POST、请求合并</td><td>进度条、分片位图从灰变绿</td></tr><tr><td>模拟中断 + 续传</td><td>新任务只补缺片</td><td>任务标「续传」，本次传输字节明显少</td></tr><tr><td>同一个文件传第二次</td><td>指纹命中档案，0 字节</td><td>任务标「秒传命中 · 0 字节」</td></tr></tbody></table></div>
+<p>看板从上到下分成：术语卡（分片 / 秒传 / 断点续传）、一键演示按钮区、真实上传区、六张统计卡、文件档案表、上传任务与分片位图、事件时间线、六步流程图。<strong>所有表格数据都来自 <code>/api/state/</code> 这一个 JSON 接口</strong>，页面只是把状态画出来。</p>
+<p>为什么这个项目没用对象存储（OSS / S3 这类云存储服务）？因为它是用来讲清楚原理的：本地磁盘 + SQLite 就能跑，不注册任何云账号，断网也能演示。文末第 15 节会诚实列出上线前必须补的东西。</p>
+<hr>
+<span class="anchor" id="1-技术栈用了什么各自负责哪一层"></span>
+<h2 id="sec-2">1. 技术栈：用了什么，各自负责哪一层</h2>
+<div class="table-wrap"><table><thead><tr><th>名称</th><th>是什么（白话）</th><th>在这个项目里的职责</th></tr></thead><tbody><tr><td>Python 3.13</td><td>写后端逻辑的语言</td><td>所有服务端代码</td></tr><tr><td>Django 5.2</td><td>一个「网站工具箱」：路由、数据库、模板、后台管理都替你做好</td><td>接住 HTTP 请求、操作数据库、渲染页面</td></tr><tr><td>MTV</td><td>Django 的分工方式：<strong>M</strong>odel 管数据、<strong>T</strong>emplate 管页面、<strong>V</strong>iew 管逻辑</td><td>本项目页面几乎全交给 Vue，所以 Template 只是一层壳</td></tr><tr><td>ORM</td><td>用 Python 类操作数据库，不用手写 SQL</td><td><code>FileRecord.objects.filter(...)</code> 就是查表</td></tr><tr><td>SQLite</td><td>一个文件就是整个数据库，零安装</td><td>存四张表</td></tr><tr><td>Vue 3（全局构建）</td><td>前端框架，让数据和界面自动同步</td><td>看板渲染、进度条、按钮状态</td></tr><tr><td><code>File.slice()</code></td><td>浏览器把文件按字节范围切一块的 API</td><td>每片 2MB，切完直接 POST</td></tr><tr><td>Web Crypto <code>crypto.subtle</code></td><td>浏览器自带的加密计算能力</td><td>算 SHA-256 指纹</td></tr><tr><td>FormData + fetch</td><td>浏览器发「带文件的表单」和发请求的标准方式</td><td>分片上传、所有 JSON 接口</td></tr><tr><td>SHA-256</td><td>给任意字节算一串 64 位「身份证号」的算法</td><td>整文件指纹、每片指纹、合并后二次校验</td></tr><tr><td>Pillow</td><td>Python 的图像处理库</td><td>生成演示样本图、合并后生成缩略图</td></tr><tr><td>CSRF Token</td><td>一个一次性凭证，证明「这个请求确实是从本站页面发出的」</td><td>保护所有 POST 接口</td></tr><tr><td>原子写 / <code>os.replace</code></td><td>先写临时文件，写完瞬间改名，避免留下半个文件</td><td>分片落盘、合并文件正式亮相</td></tr></tbody></table></div>
+<p><strong>Vue 为什么不用 npm？</strong> 正常项目会用 Node.js 打包，但那需要装一整套前端工具链。这里把 <code>vue.global.prod.js</code>（157KB）直接放进 <code>static/vendor/</code>，页面用 <code>&lt;script&gt;</code> 引入即可，代价是没有单文件组件，好处是<strong>克隆仓库后 <code>python manage.py runserver</code> 就能跑，断网也能打开</strong>。这对一个用来学习的演示项目是划算的取舍。</p>
+<hr>
+<span class="anchor" id="2-第一层一次点击请求怎么走一圈"></span>
+<h2 id="sec-3">2. 第一层：一次点击，请求怎么走一圈</h2>
+<p>以「选文件 → 开始上传」为例，浏览器和服务端之间实际发生了这些往返：</p>
+<pre><code>浏览器                                       Django 服务
+   |                                                |
+   |-- GET /  --------------------------------------&gt;|  返回 HTML 外壳 + 种下 csrftoken
+   |-- GET /api/state/ ----------------------------&gt;|  返回当前统计 / 文件 / 任务 / 事件
+   |                                                |
+   | [本地] crypto.subtle 算整文件 SHA-256           |
+   |-- POST /api/upload/check/ {指纹,大小,分片大小} --&gt;|  查档案 / 查已有分片，建任务
+   |&lt;-------------------- {task_id, uploaded:[]} ---|
+   |                                                |
+   | [本地] File.slice 切第 0、1、2 片，3 路并发      |
+   |-- POST /api/upload/chunk/ (multipart #0) ------&gt;|  校验 → 原子落盘 → 记一条事件
+   |-- POST /api/upload/chunk/ (multipart #1) ------&gt;|
+   |-- POST /api/upload/chunk/ (multipart #2) ------&gt;|
+   |&lt;--------------- {result: APPLIED / DUPLICATE} --|
+   |                     …… 直到所有片到齐 ……          |
+   |                                                |
+   |-- POST /api/upload/merge/ {task_id} -----------&gt;|  按序拼接 → 整文件再算一次指纹
+   |&lt;------------------ {result: MERGED} -----------|  生成档案 + 缩略图 + 清理临时块
+   |-- GET /api/state/ -----------------------------&gt;|  刷新看板</code></pre>
+<p>几个之前学过的状态码，在这个项目里对应什么：</p>
+<div class="table-wrap"><table><thead><tr><th>状态码</th><th>白话</th><th>本项目的触发点</th></tr></thead><tbody><tr><td>200</td><td>成功</td><td>页面、状态接口、检查接口</td></tr><tr><td>400</td><td>参数不合法</td><td>指纹不是 64 位十六进制、分片大小越界（<code>UploadError</code> 默认 400）</td></tr><tr><td>403</td><td>不认凭证</td><td>POST 没带 <code>X-CSRFToken</code>（<code>test_csrf_rejects_post_without_token</code> 专门测了）</td></tr><tr><td>404</td><td>找不到</td><td>合并时 <code>task_id</code> 不存在（清空重来后再点旧任务）</td></tr><tr><td>409 / 413</td><td>冲突 / 太大</td><td>同一编号带来不同内容、单片超过 16MB</td></tr><tr><td>500</td><td>服务端崩了</td><td>兜底异常，<code>views.py</code> 会记日志并返回 JSON 错误</td></tr></tbody></table></div>
+<p><strong>同步和异步</strong>：页面上的 <code>fetch</code> 都是异步（async），意思是「发出请求后不卡住界面，等结果回来再继续」；<code>await</code> 就是「这一行要等结果」。并发池里三个 worker 同时 <code>await</code>，所以叫并发上传。</p>
+<hr>
+<span class="anchor" id="3-第二层django-内部的五站流水线"></span>
+<h2 id="sec-4">3. 第二层：Django 内部的五站流水线</h2>
+<p>请求进到服务端后，依次经过：</p>
+<pre><code>config/urls.py          ① 总路由：/ 交给 uploader.urls，/media/ 指向本地磁盘
+   ↓
+uploader/urls.py        ② 子路由：把 7 个 URL 分别指到 views 里的函数
+   ↓
+CsrfViewMiddleware      ③ 安检口：每个 POST 校验 X-CSRFToken
+   ↓
+uploader/views.py       ④ 翻译层：JSON / multipart → 调 service → 返回 JsonResponse
+   ↓
+uploader/service.py     ⑤ 业务层：真正的上传链路，不认识 HTTP
+   ↓
+uploader/models.py      ⑥ 数据层：ORM 读写四张表
+   ↓
+media/ 目录             ⑦ 磁盘：临时分片、合并文件、缩略图</code></pre>
+<div class="table-wrap"><table><thead><tr><th>文件</th><th>行数</th><th>职责</th><th>为什么不合并</th></tr></thead><tbody><tr><td><code>config/settings.py</code></td><td>82</td><td>数据库、静态/媒体目录、分片大小参数</td><td>配置集中放，环境变量可覆盖</td></tr><tr><td><code>uploader/urls.py</code></td><td>13</td><td>URL → 视图的映射表</td><td>路由单独一张表，改地址不用翻业务代码</td></tr><tr><td><code>uploader/views.py</code></td><td>116</td><td>解析请求、错误翻译成 400/404/500</td><td>只做「翻译」，不含业务逻辑</td></tr><tr><td><code>uploader/service.py</code></td><td>547</td><td>检查、接收、合并、演示、状态快照</td><td><strong>关键</strong>：不依赖 HTTP，所以测试和命令行演示能直接调用同一套代码</td></tr><tr><td><code>uploader/models.py</code></td><td>140</td><td>四张表的结构、约束、辅助属性</td><td>ORM 定义与业务动作分离</td></tr><tr><td><code>uploader/hashing.py</code></td><td>78</td><td>指纹、分片大小、文件名清洗、单位换算</td><td>纯函数，最容易写测试</td></tr><tr><td><code>static/app.js</code></td><td>298</td><td>浏览器端上传器与看板</td><td>前端独立，可单独替换成 Vue CLI 工程</td></tr></tbody></table></div>
+<p>把业务逻辑放进 <code>service.py</code> 是本项目最重要的结构决定：一键演示不是「往表里塞假数据」，而是在服务端调用 <code>check_upload → receive_chunk → merge_task</code> 这一模一样的函数（<code>service.py:474</code> 的 <code>run_demo_scenario</code>）。这样演示跑通，等于真实链路跑通。</p>
+<p><strong>CSRF 安检口</strong>在这里怎么过？页面视图 <code>console()</code> 上有 <code>@ensure_csrf_cookie</code>（<code>views.py:54</code>），Django 会在响应里种下 <code>csrftoken</code> cookie；前端 <code>app.js:41</code> 的 <code>postJSON</code> 和分片上传都把它放进 <code>X-CSRFToken</code> 请求头。浏览器自动带 cookie、手动带头，两边对上才放行。</p>
+<hr>
+<span class="anchor" id="4-第三层四张数据表各司其职"></span>
+<h2 id="sec-5">4. 第三层：四张数据表，各司其职</h2>
+<div class="table-wrap"><table><thead><tr><th>表</th><th>一句话职责</th><th>关键字段</th></tr></thead><tbody><tr><td><code>FileRecord</code></td><td>「服务器上已经有这份文件」的档案</td><td><code>file_hash</code>（唯一）、<code>size</code>、<code>total_chunks</code>、<code>rel_path</code>、<code>thumbnail</code>、<code>ref_count</code></td></tr><tr><td><code>UploadTask</code></td><td>一次上传会话</td><td><code>task_id</code>（唯一）、<code>status</code>、<code>bytes_sent</code>、<code>instant</code>、<code>resumed</code>、<code>source</code></td></tr><tr><td><code>UploadChunk</code></td><td>已落盘的某一片</td><td><code>file_hash</code> + <code>index</code>（联合唯一）、<code>chunk_hash</code>、<code>rel_path</code></td></tr><tr><td><code>UploadEvent</code></td><td>可观测性流水：每次检查、拦下、合并都记一条</td><td><code>event_type</code>、<code>result</code>、<code>chunk_index</code>、<code>detail</code></td></tr></tbody></table></div>
+<h3>一个决定成败的设计：分片挂在 <code>file_hash</code> 上，不挂在 <code>task_id</code> 上</h3>
+<p>断点续传的本质是「换个会话也能接着传」。如果把分片绑在任务上，刷新页面新建一个 task 后，旧的片就查不到了，只能从头传。本项目让 <code>UploadChunk</code> 以 <code>(file_hash, index)</code> 为身份：</p>
+<pre><code># uploader/models.py:82
+class UploadChunk(models.Model):
+    file_hash = models.CharField(max_length=64, db_index=True)
+    index = models.PositiveIntegerField()
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=[&quot;file_hash&quot;, &quot;index&quot;], name=&quot;uniq_file_chunk_index&quot;)]</code></pre>
+<p>于是 <code>check_upload()</code> 只要按 <code>file_hash</code> 查一次，就能告诉新任务「0、1 号片已经有了，只补 2、3、4」（<code>service.py:88</code>）。联合唯一约束同时充当并发闸门：两个请求同时写同一片，数据库只会让一个成功，另一个收到 <code>IntegrityError</code>，被 <code>service.py:169</code> 捕获后当作「重复投递」处理。</p>
+<p>任务状态是一个很小的状态机（state machine，规定状态只能怎么变）：</p>
+<pre><code>uploading ──收齐分片并合并成功──&gt; merged
+    │
+    └──整文件指纹校验失败──────&gt; failed
+check 命中档案 ─────────────────&gt; instant（直接终态，bytes_sent = 0）</code></pre>
+<p><code>FileRecord.ref_count</code> 记录这份档案被秒传命中了多少次，<code>build_state()</code> 里用它算「省下流量」。</p>
+<hr>
+<span class="anchor" id="5-第四层核心链路六步"></span>
+<h2 id="sec-6">5. 第四层：核心链路六步</h2>
+<h3>5.1 算指纹（浏览器，<code>app.js:196</code>）</h3>
+<pre><code>const whole = await sha256(await picked.value.arrayBuffer());</code></pre>
+<p><code>crypto.subtle.digest("SHA-256", buffer)</code> 返回整文件的 64 位十六进制指纹。白话：给这堆字节拍一张「证件照」，内容变一个字节，照片就完全不同。<strong>注意</strong>：Web Crypto 只在安全上下文（secure context，HTTPS 或 <code>127.0.0.1</code> / <code>localhost</code>）可用，所以本地必须用这两个地址访问，不能直接开文件。</p>
+<h3>5.2 上传前检查（<code>service.py:88</code>）</h3>
+<p>服务端做三件事：校验参数；自己按 <code>size / chunk_size</code> 算 <code>total_chunks</code>（<strong>不信前端报的片数</strong>）；查 <code>FileRecord</code>。</p>
+<pre><code>FileRecord 里有这个指纹？
+    ├─ 有 → 建 instant 任务、bytes_sent=0、ref_count+1、返回 {instant: true}
+    └─ 没有 → 查 UploadChunk 里已有哪些编号 → 建 uploading 任务、返回 {uploaded: [...]}</code></pre>
+<p>两条分支都会写一条 <code>UploadEvent</code>，所以看板能看到「为什么没传」。</p>
+<h3>5.3 分片并发（浏览器，<code>app.js:167</code> / <code>app.js:196</code>）</h3>
+<pre><code>const worker = async () =&gt; {
+  while (queue.length) {
+    if (interrupted.value) return;
+    while (paused.value &amp;&amp; !interrupted.value) await sleep(120);
+    const index = queue.shift();
+    await sendOne(index);
+  }
+};
+await Promise.all(Array.from({length: concurrency}, worker));</code></pre>
+<p>这是一个<strong>并发池</strong>：开 3 个 worker，共享一个待传队列，谁空了就从队列取下一片。暂停只是让 worker 停在 <code>while (paused)</code> 里，不取消正在飞的请求；「模拟中断」则让 worker 不再取新片，已经发出的请求照常落盘——这正是真实断网的样子，也正是续传要处理的情况。</p>
+<p>每一片单独算片指纹，连同 <code>task_id</code>、<code>index</code>、文件内容一起放进 <code>FormData</code> POST 出去。</p>
+<h3>5.4 幂等闸门（服务端，<code>service.py:169</code>）</h3>
+<p>「幂等」（idempotency）的意思是：同一件事做 100 次，效果和做 1 次一样。分片可能被重传、被并发重复提交，服务端按这个顺序判断：</p>
+<div class="table-wrap"><table><thead><tr><th>检查</th><th>不通过的结果</th><th>白话</th></tr></thead><tbody><tr><td>编号越界 / 大小不符</td><td><code>REJECTED</code></td><td>这不是我要的那一块</td></tr><tr><td>片内容与声明的片指纹不符</td><td><code>CORRUPT</code></td><td>传坏了，不落盘</td></tr><tr><td>该 <code>(file_hash, index)</code> 已存在且指纹相同</td><td><code>DUPLICATE</code></td><td>来过了，跳过，不重复写盘</td></tr><tr><td>已存在但指纹不同</td><td><code>CONFLICT</code></td><td>同编号带了两个不同内容，拒绝覆盖</td></tr><tr><td>都没问题</td><td><code>APPLIED</code></td><td>原子落盘 + 记一条 <code>UploadChunk</code> + 累加 <code>bytes_sent</code></td></tr></tbody></table></div>
+<p>落盘用「先写 <code>.tmp</code> 再 <code>os.replace</code>」（<code>service.py:65</code>），避免断电留下半个分片。写入和记库放在 <code>transaction.atomic()</code> 里，要么都成功要么都回滚。</p>
+<h3>5.5 按序合并（<code>service.py:237</code>）</h3>
+<pre><code>with open(tmp_path, &quot;wb&quot;) as out:
+    for index in range(task.total_chunks):   # 严格 0 → n-1
+        with open(_chunk_abs(task.file_hash, index), &quot;rb&quot;) as fh:
+            out.write(fh.read())</code></pre>
+<p><strong>分片到达顺序完全不影响结果</strong>，因为顺序由编号决定，不由网络决定。演示里的「乱序分片」故意按 <code>2, 0, 4, 1, 3</code> 提交，合并出来仍与原文件逐字节相同。</p>
+<h3>5.6 二次校验、正式亮相、缩略图</h3>
+<p>合并完还要用 <code>sha256_stream()</code> 边读边算一次整文件指纹，和上传前声明的比对：</p>
+<ul><li>不一致 → 删临时文件、任务标 <code>failed</code>、返回 <code>CORRUPT</code>，<strong>绝不入库</strong>；</li><li>一致 → <code>os.replace(tmp, final)</code> 让文件正式可见 → <code>get_or_create(FileRecord)</code> → Pillow 生成 160×160 缩略图 → 删临时分片、保留 <code>UploadChunk</code> 记录（位图还要显示）。</li></ul>
+<p>这道「二次校验」不是多余的：每一片自己的指纹都能对上，但<strong>把别人的分片拼进来</strong>也是每片合法的，只有整文件指纹能抓出来。<code>test_merge_rejects_wrong_whole_hash</code> 就是专门伪造这种攻击的测试。</p>
+<hr>
+<span class="anchor" id="6-三个卖点分别落在哪几行代码"></span>
+<h2 id="sec-7">6. 三个卖点，分别落在哪几行代码</h2>
+<div class="table-wrap"><table><thead><tr><th>卖点</th><th>专业说法</th><th>落地位置</th></tr></thead><tbody><tr><td>秒传</td><td>内容寻址（content-addressable）：用内容指纹而不是文件名当身份</td><td><code>service.py:88</code> 查 <code>FileRecord</code>；命中后 <code>bytes_sent=0</code></td></tr><tr><td>断点续传</td><td>幂等记录 + 状态查询，客户端只补差集</td><td><code>service.py:88</code> 返回 <code>uploaded</code>；<code>models.py:82</code> 分片挂 <code>file_hash</code>；<code>app.js:196</code> 重新 check</td></tr><tr><td>乱序与并发</td><td>编号即全序，服务端无状态接收</td><td><code>service.py:169</code> 按 <code>index</code> 落盘；<code>service.py:237</code> 按编号拼接；<code>app.js:196</code> 并发池</td></tr></tbody></table></div>
+<p>一个容易被忽略的点：<strong>秒传不是「跳过校验」</strong>。它跳过的只是字节传输，任务、事件、引用计数照样记录，看板上才有「0 字节」和「省下流量」可看。</p>
+<hr>
+<span class="anchor" id="7-前端vue-3-看板与上传器"></span>
+<h2 id="sec-8">7. 前端：Vue 3 看板与上传器</h2>
+<h3>Django 模板和 Vue 的 <code>{{ }}</code> 撞车怎么办</h3>
+<p>Django 模板也用 <code>{{ 变量 }}</code>，Vue 也用 <code>{{ 变量 }}</code>。解决办法是把整个 <code>#app</code> 用 <code>{% verbatim %}</code> 包起来（<code>templates/console.html</code>），意思是「Django 别解析这一段，原样输出」，让 Vue 自己接管。代价是这一段里不能写 <code>{% url %}</code> 之类 Django 标签，所以接口地址在 <code>app.js</code> 里用字面量 <code>/api/...</code>。</p>
+<h3>Vue 管的状态</h3>
+<p><code>app.js</code> 的 <code>setup()</code> 里用 <code>ref</code> 声明响应式状态（数据一变，界面自动重画）：<code>state</code>（看板数据）、<code>picked</code>（选中的文件）、<code>progress</code>、<code>sent</code>、<code>phase</code>、<code>chunkStates</code>（每片是 todo / doing / done / dup）、<code>paused</code>、<code>interrupted</code>、<code>busy</code>、<code>notice</code>。<code>computed</code> 负责派生值，比如 <code>expectedTotal = ceil(文件大小 / 分片大小)</code>。</p>
+<h3>界面适配</h3>
+<p><code>templates/base.html</code> 里是一份自包含 CSS：CSS 变量定义浅色/深色两套配色，<code>@media (prefers-color-scheme: dark)</code> 自动跟随系统，<code>@media (max-width: 520px)</code> 把六列统计卡收成两列、按钮换行、表格放进 <code>.table-wrap</code> 横向滚动。手机端 500px 宽度已用无头浏览器截图核对过，没有横向溢出。</p>
+<hr>
+<span class="anchor" id="8-接口清单"></span>
+<h2 id="sec-9">8. 接口清单</h2>
+<div class="table-wrap"><table><thead><tr><th>方法</th><th>路径</th><th>主要入参</th><th>返回</th><th>作用</th></tr></thead><tbody><tr><td>GET</td><td><code>/</code></td><td>—</td><td>HTML</td><td>演示看板，顺带种 CSRF cookie</td></tr><tr><td>GET</td><td><code>/api/state/</code></td><td>—</td><td>统计 / 文件 / 任务 / 事件 / 参数</td><td>看板唯一数据源</td></tr><tr><td>POST</td><td><code>/api/upload/check/</code></td><td><code>file_hash, filename, size, chunk_size</code></td><td><code>instant</code> 或 <code>task_id + uploaded[]</code></td><td>秒传判定 / 断点查询</td></tr><tr><td>POST</td><td><code>/api/upload/chunk/</code></td><td>multipart：<code>task_id, index, chunk_hash, file</code></td><td><code>APPLIED / DUPLICATE / CONFLICT / CORRUPT / REJECTED</code></td><td>收一片</td></tr><tr><td>POST</td><td><code>/api/upload/merge/</code></td><td><code>task_id</code></td><td><code>MERGED / INCOMPLETE / CORRUPT</code></td><td>拼接 + 二次校验</td></tr><tr><td>POST</td><td><code>/api/demo/run/</code></td><td><code>scenario</code></td><td>场景摘要</td><td>服务端跑演示</td></tr><tr><td>POST</td><td><code>/api/demo/reset/</code></td><td>—</td><td>清空结果</td><td>重置演示数据</td></tr></tbody></table></div>
+<p>所有响应都是 JSON，外层统一带 <code>ok</code>；业务错误由 <code>views.py:40</code> 的 <code>_handle</code> 翻译成结构化错误码，不会把一页 HTML 报错丢给前端。</p>
+<hr>
+<span class="anchor" id="9-文件清单与规模"></span>
+<h2 id="sec-10">9. 文件清单与规模</h2>
+<div class="table-wrap"><table><thead><tr><th>文件</th><th>行数</th><th>说明</th></tr></thead><tbody><tr><td><code>config/settings.py</code></td><td>82</td><td>配置与分片参数</td></tr><tr><td><code>uploader/models.py</code></td><td>140</td><td>四张表</td></tr><tr><td><code>uploader/hashing.py</code></td><td>78</td><td>指纹与分片工具</td></tr><tr><td><code>uploader/service.py</code></td><td>547</td><td>完整业务链路、演示、状态快照</td></tr><tr><td><code>uploader/views.py</code></td><td>116</td><td>7 个 HTTP 接口</td></tr><tr><td><code>uploader/tests.py</code></td><td>322</td><td>22 个测试</td></tr><tr><td><code>uploader/migrations/0001_initial.py</code></td><td>92</td><td>自动生成的建表迁移</td></tr><tr><td><code>templates/base.html</code></td><td>176</td><td>全站样式（浅色/深色/手机端）</td></tr><tr><td><code>templates/console.html</code></td><td>190</td><td>Vue 看板骨架</td></tr><tr><td><code>static/app.js</code></td><td>298</td><td>浏览器上传器</td></tr><tr><td><code>static/vendor/vue.global.prod.js</code></td><td>—</td><td>Vue 3.5.13，157KB，本地化</td></tr><tr><td><code>docs/</code></td><td>—</td><td>本文档、博客、离线阅读版与生成脚本</td></tr></tbody></table></div>
+<p>后端 + 前端 + 测试约 2,100 行；<code>media/</code> 与 <code>db.sqlite3</code> 是运行期产物，不进版本库。</p>
+<hr>
+<span class="anchor" id="10-一键演示与可观测性"></span>
+<h2 id="sec-11">10. 一键演示与可观测性</h2>
+<p><code>run_demo_scenario()</code>（<code>service.py:474</code>）支持五个场景，每个都<strong>真的调用同一个 service 链路</strong>：</p>
+<div class="table-wrap"><table><thead><tr><th>场景</th><th>怎么造出来的</th><th>验证什么</th></tr></thead><tbody><tr><td><code>normal</code></td><td>5 片按 <code>2,0,4,1,3</code> 乱序提交</td><td>乱序不影响合并结果</td></tr><tr><td><code>duplicate</code></td><td>第 1 片连投两次</td><td>第二次被 <code>DUPLICATE</code> 拦下，不重复写盘</td></tr><tr><td><code>resume</code></td><td>先传 2 片，模拟断网，再新建任务补 3 片</td><td><code>check</code> 返回 <code>uploaded=[0,1]</code>，只补缺片</td></tr><tr><td><code>instant</code></td><td>拿已存在档案的指纹再 check 一次</td><td>0 字节、<code>ref_count+1</code></td></tr><tr><td><code>all</code></td><td>串起上面四个</td><td>一次看清全貌</td></tr></tbody></table></div>
+<p>命令行也能跑：<code>python manage.py demo_upload --scenario all</code>，或 <code>--scenario reset</code> 清空。</p>
+<p>「可观测性」（observability，系统把内部发生了什么讲清楚的能力）靠两张东西：<code>UploadEvent</code> 流水（每次检查/拦下/合并都留痕）和分片位图（灰=缺、绿=已到、紫=重复被拦）。没有这两样，重复被拦在页面上的数字会永远是 0，和项目 2 里踩过的坑一模一样。</p>
+<hr>
+<span class="anchor" id="11-测试策略22-个测试分五组"></span>
+<h2 id="sec-12">11. 测试策略：22 个测试分五组</h2>
+<div class="table-wrap"><table><thead><tr><th>组</th><th>代表用例</th><th>保证什么</th></tr></thead><tbody><tr><td>工具层</td><td><code>test_hash_helpers</code></td><td>指纹一致性、片数计算、文件名清洗</td></tr><tr><td>幂等与校验</td><td><code>test_duplicate_chunk_is_idempotent</code>、<code>test_conflicting_chunk_not_overwritten</code>、<code>test_unique_constraint_on_chunk</code></td><td>重复不写盘、冲突不覆盖、唯一约束兜底</td></tr><tr><td>合并与完整性</td><td><code>test_out_of_order_upload_merges_correctly</code>、<code>test_merge_rejects_missing_chunks</code>、<code>test_merge_rejects_wrong_whole_hash</code></td><td>乱序可拼回、缺片拒绝、伪造分片被二次校验抓出</td></tr><tr><td>秒传 / 续传 / 缩略图</td><td><code>test_instant_upload_hits_existing_record</code>、<code>test_resume_only_uploads_missing_chunks</code>、<code>test_thumbnail_generated_for_image</code></td><td>0 字节命中、只补缺片、Pillow 出图</td></tr><tr><td>HTTP 层</td><td><code>test_full_http_roundtrip</code>、<code>test_csrf_rejects_post_without_token</code>、<code>test_unknown_task_returns_404</code></td><td>接口串联、安检口、404</td></tr></tbody></table></div>
+<p>测试用 <code>@override_settings(MEDIA_ROOT=临时目录)</code> 把磁盘产物隔离到临时文件夹，<strong>跑测试不会清掉演示页面正在展示的数据</strong>。</p>
+<p>除了单元测试，还用无头浏览器做过一次真实端到端：生成 1.3MB 文件、算指纹、6 片上传、合并、再传一次秒传，输出 <code>RESULT OK</code>；桌面 1280px 与手机 500px 各截图核对过布局。</p>
+<hr>
+<span class="anchor" id="12-真实踩坑复盘"></span>
+<h2 id="sec-13">12. 真实踩坑复盘</h2>
+<ol><li><strong>合并时临时文件被提前删掉</strong>。第一版用 <code>try/finally</code> 无条件删 <code>.merging</code> 临时文件，结果校验通过后还得重新拼一遍文件。改成「校验通过才 <code>os.replace</code> 正式亮相，失败才删临时文件」，代码短了一半，也讲得清。</li><li><strong>Django 模板缓存让 CSS 修复看不到</strong>。改完 <code>base.html</code> 后，运行中 <code>--noreload</code> 的服务仍返回旧模板，<code>curl</code> 抓到的 CSS 少一条规则。重启 <code>runserver</code> 后才生效——以后遇到「改了没反应」，先确认服务是否重新加载了模板。</li><li><strong>暗色主题「记录」标签白底白字</strong>。<code>.pill.muted</code> 在浅色下是浅灰底，深色下必须单独覆盖背景与文字色，否则文字糊成一片。截图复核后确认修好。</li><li><strong><code>{% verbatim %}</code> 与 Vue 模板冲突</strong>。不放进 verbatim，Django 会先把 <code>{{ stats.files }}</code> 当自己的变量解析掉，页面剩空白。</li><li><strong>演示样本既要够大、又得是能出缩略图的图片</strong>。解决办法是用 Pillow 画一张 PNG，再往 IEND 之后追加确定性字节凑到目标大小；PNG 解码器忽略尾部数据，Pillow 仍能生成缩略图，而整文件指纹按完整字节流计算。</li><li><strong>CSRF cookie 从哪来</strong>。独立静态页做端到端测试时没有 csrftoken，先 <code>fetch('/')</code> 让 <code>@ensure_csrf_cookie</code> 种下 cookie，再发 POST 才通。</li><li><strong>分片不能绑任务</strong>。早期思路把 <code>UploadChunk</code> 挂在 <code>task_id</code> 上，写续传逻辑时发现刷新页面后旧片全查不到，改成按 <code>file_hash</code> 共享（见第 4 节）。</li><li><strong>别信前端报的片数</strong>。客户端可能算错或恶意伪造，<code>total_chunks</code> 一律由服务端按 <code>size / chunk_size</code> 重算；每片期望大小也由服务端算，最后一片才允许变小。</li></ol>
+<hr>
+<span class="anchor" id="13-想自己从零做出来按这个顺序"></span>
+<h2 id="sec-14">13. 想自己从零做出来，按这个顺序</h2>
+<ol><li><code>django-admin startproject</code> 建骨架，<code>startapp uploader</code>，<code>settings.py</code> 配上 <code>MEDIA_ROOT</code> 和 SQLite。</li><li>先只写四张表 + <code>python manage.py makemigrations &amp;&amp; migrate</code>。</li><li>写 <code>hashing.py</code>，用 <code>python manage.py shell</code> 手算一次 SHA-256，把「指纹」这个感觉建立起来。</li><li>写 <code>service.py</code> 的三个函数：<code>check_upload</code> → <code>receive_chunk</code> → <code>merge_task</code>，<strong>先不接 HTTP</strong>，直接在 shell 里传 bytes 调。</li><li>给这三个函数写测试（乱序、重复、缺片、伪造），测试过了再接 <code>views.py</code>。</li><li>接 7 个 URL，用 <code>curl</code> 或浏览器 DevTools 的 Network 面板看请求往返。</li><li>最后写 Vue 看板：先只做 <code>/api/state/</code> 渲染，再加文件选择、切片、并发池、进度条、位图。</li></ol>
+<p>这个顺序就是「由外向内理解、由内向外实现」：先懂流程与骨架，再一点点添细节。</p>
+<hr>
+<span class="anchor" id="14-术语速查白话版"></span>
+<h2 id="sec-15">14. 术语速查（白话版）</h2>
+<div class="table-wrap"><table><thead><tr><th>术语</th><th>白话</th></tr></thead><tbody><tr><td>分片 chunk</td><td>把大文件切成固定大小的小块，编号后分别传</td></tr><tr><td>哈希 / 指纹 hash</td><td>给字节算的身份证号，改一个字节就完全不同</td></tr><tr><td>秒传 instant upload</td><td>服务器已有同指纹文件，直接复用，0 字节传输</td></tr><tr><td>断点续传 resumable</td><td>断了只补没传过的片，不从头来</td></tr><tr><td>幂等 idempotency</td><td>同一操作重复做多次，结果和做一次一样</td></tr><tr><td>内容寻址</td><td>用内容指纹当身份，不用文件名</td></tr><tr><td>并发 concurrency</td><td>同时传好几片，<code>Promise.all</code> + 共享队列</td></tr><tr><td>原子写 atomic write</td><td>先写临时文件再瞬间改名，不留半成品</td></tr><tr><td>唯一约束 unique constraint</td><td>数据库层面的「这个组合只能有一条」，并发也拦得住</td></tr><tr><td>事务 transaction</td><td>一组数据库操作要么全成功，要么全回滚</td></tr><tr><td>状态机 state machine</td><td>规定状态只能怎么变，比如不允许从「已完成」退回「上传中」</td></tr><tr><td>可观测性 observability</td><td>系统把内部发生了什么讲清楚，靠事件流水和位图</td></tr><tr><td>CSRF</td><td>证明请求来自本站页面的凭证，防止别的网站冒名提交</td></tr><tr><td>ORM</td><td>用 Python 类操作数据库，不手写 SQL</td></tr><tr><td>安全上下文 secure context</td><td>浏览器只在 HTTPS / localhost 下开放加密相关 API</td></tr><tr><td>MTV</td><td>Django 的分工：数据 Model / 页面 Template / 逻辑 View</td></tr></tbody></table></div>
+<hr>
+<span class="anchor" id="15-上线前必须补的东西诚实边界"></span>
+<h2 id="sec-16">15. 上线前必须补的东西（诚实边界）</h2>
+<p>这个项目的目标是把原理讲清楚，不是生产级网盘。真要上线，至少还要：</p>
+<ul><li><strong>鉴权与隔离</strong>：现在所有文件全局共享，任何人算得出指纹就能引用；生产要按用户/租户隔离，并对秒传做权限校验。</li><li><strong>存储换成对象存储</strong>：本地磁盘不适合多机部署，分片应写 OSS/S3 并用服务端签发的直传凭证。</li><li><strong>增量哈希</strong>：现在浏览器 <code>arrayBuffer()</code> 把整个文件读进内存，几百 MB 还行，GB 级要改成按片增量计算或 Web Worker。</li><li><strong>过期清理</strong>：中断后没人续传的分片要定时回收，否则磁盘会涨。</li><li><strong>合并异步化</strong>：大文件合并应丢到后台任务队列，HTTP 请求立刻返回。</li><li><strong>限流与配额</strong>：限制单用户并发数、总容量、单片重试次数。</li><li><strong>指纹算法升级</strong>：SHA-256 足够教学用，但对「哈希碰撞导致误命中」零容忍的场景要加长度 + 采样二次校验。</li></ul>
+<p>把这些写进文档，比假装它们不存在更专业——面试时被追问，也能讲清楚边界在哪。</p></article>
+    <article id="doc-blog"><h1>把一个文件切成 6 片之后，我才明白「秒传」不是魔法</h1>
+<blockquote>项目 03 · 大文件分片上传与秒传 · 2026-11-16<br>技术栈：Django 5.2 + Vue 3 + Pillow + SQLite · 22 个测试</blockquote>
+<p>前两个项目做完之后，我一直想做一个「一眼能看懂在干什么」的后端项目。订单状态位图很硬核，但朋友点开看板，第一反应是「这些 0 和 1 是什么」。所以这次我选了大文件上传——每个人都被网盘里的「秒传」惊到过，原理却没那么玄。</p>
+<p>结果真正动手，最先被教育的是我自己。</p>
+<hr>
+<span class="anchor" id="一为什么不能一次-post-上去"></span>
+<h2 id="sec-1">一、为什么不能一次 POST 上去</h2>
+<p>最朴素的上传就是：选文件 → 表单提交 → 服务端存下来。小文件没问题，文件一大就会同时撞上三堵墙：请求体太大被网关拒绝、传到 90% 断网要从头再来、一个慢连接把工作线程占住。</p>
+<p>于是有了<strong>分片</strong>（chunk）：把文件按 2MB 切开，每片编号，分别上传。断网只重传那一块，多路并发还能更快。听起来简单，真正写起来第一件事就卡住了我。</p>
+<hr>
+<span class="anchor" id="二我第一个版本犯的错把分片绑在任务上"></span>
+<h2 id="sec-2">二、我第一个版本犯的错：把分片绑在「任务」上</h2>
+<p>我建了一张 <code>UploadChunk</code> 表，字段是 <code>task_id + index</code>。写完上传、写完合并，一切正常。然后我加「断点续传」：模拟断网、刷新页面、重新选同一个文件——新任务查不到任何旧分片，只能从头传。</p>
+<p>那一刻才明白：<strong>断点续传的本质不是「记住传到哪」，而是「让分片不属于某一次会话」</strong>。</p>
+<p>改成用文件指纹 <code>file_hash + index</code> 当身份之后，逻辑突然变简单了：</p>
+<pre><code>uploaded = UploadChunk.objects.filter(file_hash=file_hash).values_list(&quot;index&quot;, flat=True)
+# 返回给前端：这几片已经有了，只补剩下的</code></pre>
+<p>刷新页面、换个浏览器、甚至换个设备传同一个文件，都能接着传。这个改动只动了两个字段，但整个设计的重心从「追踪进度」变成了「记录事实」。</p>
+<hr>
+<span class="anchor" id="三幂等不是-if-判断是数据库说了算"></span>
+<h2 id="sec-3">三、幂等不是 <code>if</code> 判断，是数据库说了算</h2>
+<p>分片重传太常见了：前端重试、用户手抖、并发池里两个 worker 抢到同一片。我第一版写的是：</p>
+<pre><code>if UploadChunk.objects.filter(...).exists():
+    return &quot;重复了&quot;</code></pre>
+<p>本地单线程跑得好好的。但只要两个请求同时进来，两边都查到「不存在」，然后都去写盘——<strong>检查与写入之间有一道缝</strong>（术语叫竞态条件，race condition）。</p>
+<p>正确的做法是把判断交给数据库：给 <code>(file_hash, index)</code> 加联合唯一约束（<code>UniqueConstraint</code>），写入和记库放进 <code>transaction.atomic()</code>，捕获 <code>IntegrityError</code> 当作重复投递。谁抢到谁写，没抢到的老实返回 <code>DUPLICATE</code>。</p>
+<p>顺手把结果分成五种，页面上就讲得清了：<code>APPLIED</code>（落盘）、<code>DUPLICATE</code>（重复拦下）、<code>CONFLICT</code>（同编号不同内容，拒绝覆盖）、<code>CORRUPT</code>（片内容和它自己声明的指纹对不上）、<code>REJECTED</code>（编号或大小不对）。以前只返回一个「成功/失败」，出问题时完全不知道该查哪儿。</p>
+<hr>
+<span class="anchor" id="四乱序一点都不可怕因为顺序由编号决定"></span>
+<h2 id="sec-4">四、乱序一点都不可怕，因为顺序由编号决定</h2>
+<p>我做演示的时候故意把 5 片按 <code>2, 0, 4, 1, 3</code> 的顺序提交，想看看会不会翻车。结果合并函数里是这样写的：</p>
+<pre><code>for index in range(task.total_chunks):   # 严格 0 → n-1
+    out.write(read_part(index))</code></pre>
+<p>它根本不关心谁先到，只按编号去取。这件事让我对「服务端无状态」有了具体的感觉：<strong>网络负责把东西送到，编号负责定义顺序</strong>，两件事解耦之后，并发和乱序都不用特殊处理。</p>
+<p>反过来，如果我把顺序记在「到达时间的先后」上，就得维护一个脆弱的队列状态，一旦某个请求超时重排就全乱了。</p>
+<hr>
+<span class="anchor" id="五秒传的本质用内容当身份证"></span>
+<h2 id="sec-5">五、秒传的本质：用内容当身份证</h2>
+<p>上传前浏览器先用 Web Crypto 算整文件的 SHA-256，服务端拿这串指纹去 <code>FileRecord</code> 表里查。查到了就直接复用，一个字节都不用传：</p>
+<pre><code>record = FileRecord.objects.filter(file_hash=file_hash).first()
+if record:
+    # 建任务、bytes_sent=0、ref_count+1、记一条 INSTANT 事件
+    return {&quot;instant&quot;: True, &quot;saved_bytes&quot;: size}</code></pre>
+<p>专业说法叫<strong>内容寻址</strong>（content-addressable）：身份由内容决定，不由文件名决定。所以「把文件改个名字再传」照样秒传，「同名但内容改了一个字节」不会误命中。</p>
+<p>有个细节我很喜欢：秒传跳过的只是「字节传输」，任务、事件、引用计数一个都不少。否则看板上「省下多少流量」这个数字就没地方来了。</p>
+<hr>
+<span class="anchor" id="六每一片都对不等于拼起来对"></span>
+<h2 id="sec-6">六、每一片都对，不等于拼起来对</h2>
+<p>这是测试给我上的一课。</p>
+<p>单片校验只检查「这一片内容和它自己声明的指纹是否一致」。假设我声明的是文件 A 的整文件指纹，实际却把文件 B 的 5 个分片（每片都带 B 的正确片指纹）传上去——每一片都能通过校验，缺片检查也能通过，合并出来的却是 B。</p>
+<p>只有<strong>合并后对整文件再算一次 SHA-256</strong>，和上传前声明的比对，才能抓出来。所以合并函数里有两个动作：先按编号拼到 <code>.merging</code> 临时文件，算完指纹一致才 <code>os.replace</code> 让它「正式亮相」；不一致就删掉临时文件、任务标 <code>failed</code>、绝不入库。</p>
+<p>我专门写了 <code>test_merge_rejects_wrong_whole_hash</code> 来伪造这种攻击。写完这个测试，才敢说「校验」两个字。</p>
+<hr>
+<span class="anchor" id="七看不见的系统等于没做对"></span>
+<h2 id="sec-7">七、看不见的系统，等于没做对</h2>
+<p>第一版演示跑完，统计卡上的「重复拦下」永远是 0。我以为是幂等没生效，查了半天才发现：重复请求确实是拦下了，只是拦下之后直接 <code>return</code>，什么都没记。</p>
+<p>这和项目 2 里踩过的坑一模一样。于是加了 <code>UploadEvent</code> 表：每次检查、每片到达、每次拦下、每次合并、每次整文件校验，都留一条流水；再用一串小方块画分片位图（灰=缺、绿=已到、紫=重复被拦）。</p>
+<p><strong>正确性靠约束，可解释性靠留痕</strong>，这是两套东西，得分开建表。加完之后，看板终于能自己讲清楚「刚才发生了什么」，我也不用再对着数据库猜。</p>
+<hr>
+<span class="anchor" id="八让一键演示跑真链路不造假数据"></span>
+<h2 id="sec-8">八、让「一键演示」跑真链路，不造假数据</h2>
+<p>演示按钮我没有写成「往表里 insert 几条好看的记录」，而是让 <code>run_demo_scenario()</code> 在服务端老老实实调用 <code>check_upload → receive_chunk → merge_task</code> 这三个函数。四个场景分别制造：乱序到达、同一片重复投递、传两片后断网再续、同内容第二次上传。</p>
+<p>好处是演示跑通 == 真实链路跑通；命令行 <code>python manage.py demo_upload --scenario all</code> 也是同一套代码，不开浏览器也能验证。写测试的时候更是省事：测试直接调 service 层，不用起服务器、不用管 CSRF。</p>
+<p>为了位图好看，演示用 256KB 的小分片（5 片一眼数得清），浏览器真实上传仍是默认 2MB。服务端只按请求里声明的 <code>chunk_size</code> 算片数，两种尺寸天然共存——这也是「不写死参数」的小回报。</p>
+<hr>
+<span class="anchor" id="九前端那些不大不小的坑"></span>
+<h2 id="sec-9">九、前端那些不大不小的坑</h2>
+<p><strong>Vue 和 Django 抢 <code>{{ }}</code>。</strong> 两边模板语法一样，Django 会先把 Vue 的变量吃掉。把整个 <code>#app</code> 用 <code>{% verbatim %}</code> 包起来，Django 原样输出，Vue 才拿到完整模板。代价是这一段里不能再写 Django 标签，接口地址就写在 JS 里了。</p>
+<p><strong>不想装 npm。</strong> 把 <code>vue.global.prod.js</code> 放到 <code>static/vendor/</code>，一个 <code>&lt;script&gt;</code> 引完事。克隆仓库、装两个 Python 包、<code>runserver</code>，断网也能打开。</p>
+<p><strong><code>crypto.subtle</code> 只在安全上下文可用。</strong> 本地必须访问 <code>127.0.0.1</code> 或 <code>localhost</code>，不能直接双击 HTML 文件。这个坑值得写进 README，不然换台电脑就懵。</p>
+<p><strong>改了 CSS 没反应。</strong> 我修暗色主题「记录」标签的白底白字，改完文件截图还是白底。用 <code>curl</code> 抓首页一看，返回的模板里根本没有新规则——<code>--noreload</code> 起的服务还抱着旧模板。重启服务，立刻好了。以后「改了没生效」，先查这一层。</p>
+<p><strong>并发池怎么写。</strong> 三个 worker 共享一个待传队列，<code>queue.shift()</code> 取下一片；暂停就是让 worker 在 <code>while (paused)</code> 里等，中断就是不再取新片（已在途的请求照常落盘，这才是真实断网）。写完发现核心代码不到 15 行。</p>
+<hr>
+<span class="anchor" id="十最后跑了一遍真的"></span>
+<h2 id="sec-10">十、最后跑了一遍真的</h2>
+<p>单元测试 22 个全过之后，我还是不太放心「浏览器那一段」——测试里的分片是 Python 构造的。于是用无头浏览器生成 1.3MB 文件，真的算指纹、真的切 6 片、真的 POST、真的合并、再传一次真的秒传，终端打出：</p>
+<pre><code>check: instant=false total=6
+分片结果 APPLIED,APPLIED,APPLIED,APPLIED,APPLIED,APPLIED
+merge: MERGED / 合并完成：6 片拼接，整文件指纹校验通过
+二次上传 instant=true
+RESULT OK</code></pre>
+<p>桌面 1280px 和手机 500px 各截了一张图，确认表格没溢出、暗色标签能看清。到这里才算敢说「做完了」。</p>
+<hr>
+<span class="anchor" id="十一写在最后"></span>
+<h2 id="sec-11">十一、写在最后</h2>
+<p>这个项目最值钱的不是代码量（前后端加起来两千行出头），而是四个可以复用的判断：</p>
+<ul><li><strong>身份要挂在稳定不变的东西上</strong>（文件指纹，而不是会话 ID）；</li><li><strong>重复判断交给唯一约束</strong>，不要交给应用层 <code>if</code>；</li><li><strong>到达顺序不等于业务顺序</strong>，编号才是；</li><li><strong>局部正确不等于整体正确</strong>，收尾必须再做一次全局校验。</li></ul>
+<p>以及一条工程习惯：<strong>把内部发生了什么记下来</strong>。没有事件流水和位图，一个「跑通了」的系统和一个「其实什么都没做」的系统，在页面上看不出区别。</p>
+<p>项目地址与文档都在仓库里，<code>docs/technical-doc.md</code> 是按「由外向内」写的技术文档，<code>docs/reader.html</code> 双击就能离线读。如果你也在学后端，建议先跑一遍 <code>python manage.py demo_upload --scenario all</code>，再对着事件时间线倒推每一步——比直接读代码容易多了。</p></article>
+  </main>
+</div>
+<div class="foot">大文件分片上传与秒传　|　文档随代码存于 docs/ 目录，离线可读</div>
+<script>
+(function () {
+  var tabs = document.querySelectorAll('.tab');
+  var articles = document.querySelectorAll('article');
+  var groups = document.querySelectorAll('.toc-group');
+  function switchTo(name) {
+    tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.doc === name); });
+    articles.forEach(function (a) { a.classList.toggle('active', a.id === 'doc-' + name); });
+    groups.forEach(function (g) { g.classList.toggle('active', g.dataset.group === name); });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try { localStorage.setItem('xj-doc-tab', name); } catch (e) {}
+  }
+  tabs.forEach(function (t) { t.addEventListener('click', function () { switchTo(t.dataset.doc); }); });
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest('.toc-link');
+    if (!link) return;
+    e.preventDefault();
+    var target = document.getElementById(link.dataset.target);
+    if (!target) return;
+    var y = target.getBoundingClientRect().top + window.pageYOffset - 84;
+    window.scrollTo({ top: y, behavior: 'smooth' });
+    groups.forEach(function (g) {
+      g.querySelectorAll('.toc-link').forEach(function (l) { l.classList.remove('active'); });
+    });
+    link.classList.add('active');
+  });
+  try {
+    var saved = localStorage.getItem('xj-doc-tab');
+    if (saved === 'blog') { switchTo('blog'); }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>

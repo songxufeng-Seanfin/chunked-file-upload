@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+{% verbatim %}
+<div id="app" class="page" v-cloak>
+
+  <header class="hero">
+    <div class="hero-main">
+      <span class="eyebrow">项目 03 · 后端核心</span>
+      <h1>大文件分片上传与秒传</h1>
+      <p>把文件切成小块并发上传，传之前先算指纹：服务器已经有了就 0 字节秒传；中途断了只补缺的块；乱序到达也能按编号拼回原文件。</p>
+    </div>
+    <div class="backend">
+      <b>默认 {{ limits.chunk_size_h }} / 片 · {{ limits.concurrency }} 路并发</b>
+      <small>演示场景用 {{ limits.demo_chunk_size_h }} 的小分片，位图看得更清。Vue 3 已本地化，断网也能打开页面。</small>
+    </div>
+  </header>
+
+  <div v-if="notice.text" class="toast" :class="notice.type">{{ notice.text }}</div>
+
+  <section class="terms">
+    <div class="term">
+      <b>分片</b><span class="en">chunk</span>
+      <p>把大文件按固定大小切开，编号后一块一块传。传失败只重传那一块，不用整个文件重来；多路并发也更快。</p>
+    </div>
+    <div class="term">
+      <b>秒传</b><span class="en">instant upload</span>
+      <p>先算整文件的 SHA-256「指纹」。服务器上已有同样指纹的文件时，直接复用，一个字节都不用再传。</p>
+    </div>
+    <div class="term">
+      <b>断点续传</b><span class="en">resumable</span>
+      <p>上传前问服务器「这个指纹的哪些片已经有了」，只补缺的片。分片记录在数据库里，刷新页面、换浏览器都还能接着传。</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>一键演示 <span class="sub">按钮在服务端真跑一遍完整链路，不是假数据</span></h2>
+    <div class="action-row">
+      <button class="btn btn-primary" :disabled="busy" @click="runDemo('all')">一键跑全部场景</button>
+      <button class="btn" :disabled="busy" @click="runDemo('normal')">乱序分片</button>
+      <button class="btn" :disabled="busy" @click="runDemo('duplicate')">重复投递</button>
+      <button class="btn" :disabled="busy" @click="runDemo('resume')">断点续传</button>
+      <button class="btn" :disabled="busy" @click="runDemo('instant')">秒传命中</button>
+      <button class="btn btn-ghost" :disabled="busy" @click="resetAll">清空重来</button>
+    </div>
+    <p class="hint">四个场景分别验证：分片乱序到达仍拼得回、同一片重复投递不重复写盘、中断后只补缺片、同内容第二次上传 0 字节。</p>
+  </section>
+
+  <section class="card">
+    <h2>真实上传 <span class="sub">选一个本地文件，浏览器真的会切片并发上传</span></h2>
+    <div class="drop" :class="{over: dragging}"
+         @click="chooseFile()"
+         @dragover.prevent="dragging = true"
+         @dragleave.prevent="dragging = false"
+         @drop.prevent="onDrop">
+      <b>把文件拖到这里，或点击选择</b>
+      <small>浏览器用 File.slice 切片 + Web Crypto 算指纹，{{ limits.concurrency }} 路并发；仅在本机 Django 服务里处理，不会发到外部</small>
+    </div>
+    <input type="file" id="picker" style="display:none" @change="onPick">
+
+    <div v-if="picked" class="filerow">
+      <div class="grow">
+        <b>{{ picked.name }}</b>
+        <small>{{ human(picked.size) }} · 预计 {{ expectedTotal }} 片 · 指纹 <span class="mono">{{ fileHash ? fileHash.slice(0,16) + '…' : '待计算' }}</span></small>
+      </div>
+      <button class="btn btn-primary btn-sm" :disabled="uploading || interrupted" @click="startUpload">开始上传</button>
+      <button class="btn btn-sm" :disabled="!uploading" @click="paused = !paused">{{ paused ? '继续' : '暂停' }}</button>
+      <button class="btn btn-warn btn-sm" :disabled="!uploading" @click="interrupt">模拟中断</button>
+      <button class="btn btn-sm" :disabled="uploading || !interrupted" @click="startUpload">续传</button>
+    </div>
+
+    <div v-if="picked" class="progress-hero"><i :style="{width: progress + '%'}"></i></div>
+    <div v-if="picked" class="meta-row">
+      <span>阶段 <b>{{ phase }}</b></span>
+      <span>进度 <b>{{ progress }}%</b></span>
+      <span>本次传输 <b>{{ human(sent) }}</b></span>
+      <span>已完成 <b>{{ doneCount }}/{{ expectedTotal }}</b> 片</span>
+      <span>并发 <b>{{ limits.concurrency }}</b></span>
+    </div>
+    <div v-if="chunkStates.length" class="mask" style="margin-top:12px">
+      <i v-for="c in chunkStates" :key="c.i" :class="{on: c.state === 'done', dup: c.state === 'dup', doing: c.state === 'doing'}"
+         :title="'第 ' + c.i + ' 片'">{{ c.i }}</i>
+    </div>
+    <div v-if="chunkStates.length" class="legend">
+      <span><i style="background:#edf2f9;border:1px solid #e2e9f3"></i>未传</span>
+      <span><i style="background:#fff4e0"></i>传输中</span>
+      <span><i style="background:#e6f7f0"></i>已落盘 / 秒传复用</span>
+      <span><i style="background:#f1ecff"></i>重复被拦</span>
+    </div>
+  </section>
+
+  <section class="stats">
+    <div class="stat hl"><div class="n">{{ stats.files || 0 }}</div><div class="l">文件档案</div></div>
+    <div class="stat"><div class="n">{{ stats.tasks || 0 }}</div><div class="l">上传任务</div></div>
+    <div class="stat ok"><div class="n">{{ stats.chunks || 0 }}</div><div class="l">已收分片</div></div>
+    <div class="stat dup"><div class="n">{{ stats.duplicates || 0 }}</div><div class="l">重复拦下</div></div>
+    <div class="stat warn"><div class="n">{{ stats.instant || 0 }}</div><div class="l">秒传命中</div></div>
+    <div class="stat ok"><div class="n">{{ stats.saved_h || '0 B' }}</div><div class="l">省下流量</div></div>
+  </section>
+
+  <div class="grid-2">
+    <section class="card">
+      <h2>文件档案 <span class="sub">合并成功 + 指纹校验通过才会入库</span></h2>
+      <div class="table-wrap" v-if="files.length">
+        <table>
+          <thead><tr><th>预览</th><th>文件名</th><th>指纹</th><th>大小</th><th>片数</th><th>秒传引用</th></tr></thead>
+          <tbody>
+            <tr v-for="f in files" :key="f.hash">
+              <td><img v-if="f.thumb" class="thumb" :src="f.thumb" alt="">
+                  <span v-else class="thumb-empty">FILE</span></td>
+              <td>{{ f.name }}</td>
+              <td class="mono">{{ f.hash }}</td>
+              <td>{{ f.size_h }}</td>
+              <td>{{ f.chunks }}</td>
+              <td>{{ f.refs }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="empty">还没有文件，点上面的「一键跑全部场景」。</div>
+    </section>
+
+    <section class="card">
+      <h2>上传任务与分片位图 <span class="sub">灰=缺片，绿=已到，紫=重复被拦</span></h2>
+      <div class="table-wrap" v-if="tasks.length">
+        <table>
+          <thead><tr><th>任务</th><th>状态</th><th>分片位图</th><th>本次传输</th></tr></thead>
+          <tbody>
+            <tr v-for="t in tasks" :key="t.task_id">
+              <td>
+                <b class="mono">{{ t.id }}</b><br>
+                <small style="color:var(--muted)">{{ t.source }} · {{ t.filename }}</small>
+              </td>
+              <td>
+                <span class="pill" :class="statusClass(t)">{{ t.status_label }}</span>
+                <span v-if="t.instant" class="pill ok" style="margin-top:4px">0 字节</span>
+                <span v-if="t.resumed" class="pill warn" style="margin-top:4px">续传</span>
+              </td>
+              <td>
+                <div class="mask">
+                  <i v-for="m in t.mask" :key="m.i" :class="{on: m.on, dup: m.dup}">{{ m.i }}</i>
+                </div>
+                <small style="color:var(--muted)">{{ t.received }}/{{ t.total }} 片 · {{ t.instant ? '复用已有档案' : t.progress + '%' }}</small>
+              </td>
+              <td class="mono">{{ t.bytes_sent_h }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="empty">还没有上传任务。</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>上传事件时间线 <span class="sub">每次检查、拦下、合并都留痕，最近 40 条</span></h2>
+    <div class="table-wrap timeline" v-if="events.length">
+      <table>
+        <thead><tr><th>时间</th><th>事件</th><th>结果</th><th>分片</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr v-for="(e, i) in events" :key="i">
+            <td class="mono">{{ e.time }}</td>
+            <td>{{ e.type }}</td>
+            <td><span class="pill" :class="resultClass(e.result)">{{ e.result_label }}</span></td>
+            <td class="mono">{{ e.index === null ? '—' : '#' + e.index }}</td>
+            <td>{{ e.detail }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div v-else class="empty">还没有事件。</div>
+  </section>
+
+  <section class="card">
+    <h2>一次上传走哪几步</h2>
+    <ol class="steps">
+      <li><b>算指纹</b><span>浏览器用 Web Crypto 对整文件算 SHA-256</span></li>
+      <li><b>问服务器</b><span>check 接口查档案命中与已有分片</span></li>
+      <li><b>并发切片</b><span>File.slice 按 2MB 切，3 路一起传</span></li>
+      <li><b>逐片校验</b><span>大小 + 片指纹，重复到达直接拦下</span></li>
+      <li><b>按序合并</b><span>不管到达顺序，按编号 0→n 拼接</span></li>
+      <li><b>总校验入库</b><span>整文件指纹一致才生成档案与缩略图</span></li>
+    </ol>
+  </section>
+
+  <div class="foot">Django 5.2 · SQLite · Vue 3（本地化） · Pillow 缩略图 · SHA-256 指纹 · 唯一约束幂等</div>
+</div>
+{% endverbatim %}
+<script src="{% static 'vendor/vue.global.prod.js' %}"></script>
+<script src="{% static 'app.js' %}"></script>
+{% endblock %}

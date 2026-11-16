@@ -5,3 +5,6 @@ db.sqlite3
 venv/
 .idea/
 allure-results/
+
+# 运行期产物
+media/
